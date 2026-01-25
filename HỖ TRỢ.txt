@@ -1,0 +1,60 @@
+-- [[ SCRIPT 1: CHECKER & SAVE INFO ]] --
+local HttpService = game:GetService("HttpService")
+local Players = game:GetService("Players")
+local PlaceId = game.PlaceId
+local JobId = game.JobId
+local LocalPlayer = Players.LocalPlayer
+
+local folderName = "mm"
+local fileName = folderName .. "/" .. LocalPlayer.Name .. ".json"
+
+-- Tạo folder nếu chưa có
+if not isfolder(folderName) then
+    makefolder(folderName)
+end
+
+local function hasChalice()
+    local backpack = LocalPlayer:FindFirstChild("Backpack")
+    local character = LocalPlayer.Character
+    
+    local items = {"God's Chalice", "Sweet Chalice"}
+    
+    for _, itemName in ipairs(items) do
+        if backpack and backpack:FindFirstChild(itemName) then return true, itemName end
+        if character and character:FindFirstChild(itemName) then return true, itemName end
+    end
+    return false, nil
+end
+
+print("✅ Bắt đầu theo dõi Chalice...")
+
+spawn(function()
+    while true do
+        wait(1) -- Cập nhật mỗi 1 giây
+        pcall(function()
+            local found, itemName = hasChalice()
+            
+            if found then
+                -- Dữ liệu cần lưu
+                local data = {
+                    username = LocalPlayer.Name,
+                    placeId = PlaceId,
+                    jobId = JobId,
+                    playerCount = #Players:GetPlayers(),
+                    timestamp = os.time(), -- Thời gian hiện tại (dạng Unix)
+                    item = itemName
+                }
+                
+                -- Ghi file (tự động đè lên nội dung cũ để cập nhật thời gian)
+                writefile(fileName, HttpService:JSONEncode(data))
+                -- print("💾 Đã lưu: " .. itemName)
+            else
+                -- Nếu không có item mà file tồn tại -> Xóa file
+                if isfile(fileName) then
+                    delfile(fileName)
+                    print("🗑️ Đã xóa file do mất Chalice.")
+                end
+            end
+        end)
+    end
+end)
