@@ -1,0 +1,51 @@
+local CoreGui = game:GetService("CoreGui")
+local GuiService = game:GetService("GuiService")
+
+print("Đã bật chế độ tự động đóng bảng thông báo lỗi...")
+
+task.spawn(function()
+    while task.wait(0.5) do 
+        local promptGui = CoreGui:FindFirstChild("RobloxPromptGui")
+        if promptGui then
+            local promptOverlay = promptGui:FindFirstChild("promptOverlay")
+            if promptOverlay then
+                local errorPrompt = promptOverlay:FindFirstChild("ErrorPrompt")
+                
+                -- Kiểm tra xem bảng báo lỗi có đang hiện không
+                if errorPrompt and errorPrompt.Visible then
+                    print("Phát hiện bảng thông báo! Đang tự động xử lý...")
+                    
+                    -- Cách 1: Dùng hàm mặc định của Roblox để xóa thông báo lỗi
+                    pcall(function()
+                        GuiService:ClearError()
+                    end)
+                    
+                    -- Cách 2: Dùng getconnections của executor để ép click vào nút OK
+                    -- (Phòng trường hợp Cách 1 bị Roblox chặn)
+                    local errorFrame = errorPrompt:FindFirstChild("ErrorFrame")
+                    if errorFrame then
+                        local buttonArea = errorFrame:FindFirstChild("ButtonArea")
+                        if buttonArea then
+                            local okButton = buttonArea:FindFirstChild("OkButton")
+                            if okButton and getconnections then
+                                -- Quét các sự kiện click chuột trái vào nút OK và kích hoạt nó
+                                for _, connection in ipairs(getconnections(okButton.MouseButton1Click)) do
+                                    pcall(function()
+                                        connection:Fire()
+                                    end)
+                                end
+                            end
+                        end
+                    end
+                    
+                    -- Đợi cho đến khi bảng thông báo thực sự biến mất để tránh spam
+                    repeat 
+                        task.wait(0.1) 
+                    until not errorPrompt.Visible
+                    
+                    print("Đã đóng bảng thông báo thành công. Tiếp tục quét...")
+                end
+            end
+        end
+    end
+end)
