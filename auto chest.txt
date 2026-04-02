@@ -1,4 +1,4 @@
--- [[ MODIFIED AUTO CHEST FOR MM SYSTEM ]] --
+-- [[ MODIFIED AUTO CHEST FOR MM SYSTEM - WITH SERVERBROWSER HOP ]] --
 
 repeat wait() until game:IsLoaded() and game.Players.LocalPlayer
 wait(4)
@@ -21,6 +21,8 @@ local StarterGui = game:GetService("StarterGui")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local player = Players.LocalPlayer
+math.randomseed(tick() + player.UserId)
+
 local autoTeleEnabled = false
 local isSitting = false
 local invisibleSeat = nil
@@ -31,6 +33,14 @@ local specialItemFound = false
 local doughKingSpawned = false
 local teleportingToBoss = false
 local eliteBossPaused = false
+
+-- [[ CẤU HÌNH HOP __SERVERBROWSER ]] --
+local targetCountMin = 1
+local targetCountMax = 4
+local targetRegion = "Singapore"
+local isHopping = false
+local startTime = tick()
+local lastTriedJob = nil
 
 -- [[ MỚI: HÀM CHECK MM FOLDER ]] --
 local function isCurrentServerInFile()
@@ -181,7 +191,6 @@ screenGui.Name = "AutoChestGUI_Final"
 screenGui.ResetOnSpawn = false
 screenGui.Parent = player:WaitForChild("PlayerGui")
 
--- Main Frame
 local mainFrame = Instance.new("Frame")
 mainFrame.Size = UDim2.new(0, 260, 0, 150)
 mainFrame.Position = UDim2.new(1, -270, 1, -160)
@@ -193,7 +202,6 @@ local mainCorner = Instance.new("UICorner")
 mainCorner.CornerRadius = UDim.new(0, 10)
 mainCorner.Parent = mainFrame
 
--- Gradient
 local gradient = Instance.new("UIGradient")
 gradient.Color = ColorSequence.new({
     ColorSequenceKeypoint.new(0, Color3.fromRGB(35, 35, 45)),
@@ -202,14 +210,12 @@ gradient.Color = ColorSequence.new({
 gradient.Rotation = 45
 gradient.Parent = mainFrame
 
--- Border Glow
 local glow = Instance.new("UIStroke")
 glow.Color = Color3.fromRGB(255, 100, 150)
 glow.Thickness = 1.5
 glow.Transparency = 0.5
 glow.Parent = mainFrame
 
--- Header
 local header = Instance.new("Frame")
 header.Size = UDim2.new(1, 0, 0, 32)
 header.BackgroundColor3 = Color3.fromRGB(255, 100, 150)
@@ -220,7 +226,6 @@ local headerCorner = Instance.new("UICorner")
 headerCorner.CornerRadius = UDim.new(0, 10)
 headerCorner.Parent = header
 
--- Title
 local title = Instance.new("TextLabel")
 title.Size = UDim2.new(1, -40, 1, 0)
 title.Position = UDim2.new(0, 10, 0, 0)
@@ -232,7 +237,6 @@ title.Font = Enum.Font.GothamBold
 title.TextXAlignment = Enum.TextXAlignment.Left
 title.Parent = header
 
--- Minimize Button
 local minimizeBtn = Instance.new("TextButton")
 minimizeBtn.Size = UDim2.new(0, 28, 0, 28)
 minimizeBtn.Position = UDim2.new(1, -32, 0, 2)
@@ -248,14 +252,12 @@ local minCorner = Instance.new("UICorner")
 minCorner.CornerRadius = UDim.new(0, 6)
 minCorner.Parent = minimizeBtn
 
--- Content
 local content = Instance.new("Frame")
 content.Size = UDim2.new(1, -16, 1, -40)
 content.Position = UDim2.new(0, 8, 0, 36)
 content.BackgroundTransparency = 1
 content.Parent = mainFrame
 
--- Toggle Button
 local toggleBtn = Instance.new("TextButton")
 toggleBtn.Size = UDim2.new(1, 0, 0, 32)
 toggleBtn.BackgroundColor3 = Color3.fromRGB(50, 200, 100)
@@ -269,7 +271,6 @@ local btnCorner = Instance.new("UICorner")
 btnCorner.CornerRadius = UDim.new(0, 7)
 btnCorner.Parent = toggleBtn
 
--- Status Label
 local statusLabel = Instance.new("TextLabel")
 statusLabel.Size = UDim2.new(1, 0, 0, 64)
 statusLabel.Position = UDim2.new(0, 0, 0, 36)
@@ -325,7 +326,164 @@ UserInputService.InputEnded:Connect(function(input)
     end
 end)
 
--- [[ SỬA: CHECK DOUGH KING (Thay cho Indra) ]]
+
+-- [[ BỘ HÀM __SERVERBROWSER HOP MỚI ]] --
+
+local function ClickRefresh()
+    pcall(function()
+        local gui = player.PlayerGui:FindFirstChild("ServerBrowser")
+        if not gui then return end
+        local frame = gui:FindFirstChild("Frame")
+        if not frame then return end
+        
+        local refreshBtn = frame:FindFirstChild("Refresh")
+        if refreshBtn and refreshBtn.Visible then
+            local x = refreshBtn.AbsolutePosition.X + (refreshBtn.AbsoluteSize.X / 2)
+            local y = refreshBtn.AbsolutePosition.Y + (refreshBtn.AbsoluteSize.Y / 2) + 58
+            VirtualInputManager:SendMouseButtonEvent(x, y, 0, true, game, 1)
+            task.wait(0.05)
+            VirtualInputManager:SendMouseButtonEvent(x, y, 0, false, game, 1)
+        end
+    end)
+end
+
+local function HopWithServerBrowser(jobId)
+    local remote = ReplicatedStorage:FindFirstChild("__ServerBrowser")
+    if remote then
+        pcall(function()
+            remote:InvokeServer("teleport", jobId)
+        end)
+    end
+end
+
+local function FilterAndJump(serverList)
+    if isHopping or type(serverList) ~= "table" then return end
+
+    local candidates = {}
+
+    for jobId, info in pairs(serverList) do
+        if type(info) == "table" then
+            local pCount = tonumber(info.Count) or 0
+            local pRegion = tostring(info.Region) or ""
+
+            if jobId ~= game.JobId
+            and string.find(pRegion, targetRegion)
+            and (pCount >= targetCountMin and pCount <= targetCountMax) then
+                table.insert(candidates, jobId)
+            end
+        end
+    end
+
+    if #candidates > 0 then
+        local chosenJob = candidates[math.random(1, #candidates)]
+
+        isHopping = true
+        lastTriedJob = chosenJob
+        
+        notify("Đang Hop", "Chuyển sang server có ID: " .. chosenJob)
+        HopWithServerBrowser(chosenJob)
+
+        -- retry nếu fail
+        task.spawn(function()
+            task.wait(5)
+            if game.JobId == lastTriedJob then
+                isHopping = false
+                if #candidates > 1 then
+                    local newJob
+                    repeat
+                        newJob = candidates[math.random(1, #candidates)]
+                    until newJob ~= lastTriedJob
+                    HopWithServerBrowser(newJob)
+                else
+                    HopWithServerBrowser(lastTriedJob)
+                end
+            end
+        end)
+    end
+end
+
+-- Hook ServerBrowser Namecall
+local mt = getrawmetatable(game)
+local oldNamecall = mt.__namecall
+setreadonly(mt, false)
+
+mt.__namecall = newcclosure(function(self, ...)
+    local method = getnamecallmethod()
+    local response = oldNamecall(self, ...)
+
+    if not isHopping
+    and (method == "InvokeServer" or method == "FireServer")
+    and tostring(self.Name) == "__ServerBrowser" then
+        if type(response) == "table" then
+            task.defer(function()
+                FilterAndJump(response)
+            end)
+        end
+    end
+
+    return response
+end)
+setreadonly(mt, true)
+
+local function serverHop()
+    if isHopping then return end
+    statusLabel.Text = "🔄 Tìm Server (Browser)..."
+    
+    local ui = player:WaitForChild("PlayerGui"):WaitForChild("ServerBrowser", 5)
+    if ui then
+        ui.Enabled = true
+        local frame = ui:FindFirstChild("Frame")
+        if frame then 
+            frame.Visible = true 
+            local filters = frame:FindFirstChild("Filters")
+            if filters and filters:FindFirstChild("SearchRegion") and filters.SearchRegion:FindFirstChild("TextBox") then
+                filters.SearchRegion.TextBox.Text = targetRegion
+            end
+        end
+    end
+    
+    startTime = tick()
+
+    task.spawn(function()
+        while not isHopping do
+            pcall(function()
+                local remote = ReplicatedStorage:FindFirstChild("__ServerBrowser")
+                if remote then
+                    remote:InvokeServer(1, targetRegion)
+                end
+            end)
+
+            task.wait(3)
+
+            if not isHopping then
+                if (tick() - startTime) >= 10 then
+                    pcall(function()
+                        if ui then
+                            ui.Enabled = false
+                            task.wait(0.5)
+                            ui.Enabled = true
+                            if ui:FindFirstChild("Frame") then
+                                ui.Frame.Visible = true
+                            end
+                            local remote = ReplicatedStorage:FindFirstChild("__ServerBrowser")
+                            if remote then
+                                remote:InvokeServer(1, targetRegion)
+                            end
+                        end
+                    end)
+                    startTime = tick()
+                else
+                    if UserInputService.WindowFocused then
+                        ClickRefresh()
+                    end
+                end
+            end
+        end
+    end)
+end
+
+-- [[ CÁC HÀM CŨ GIỮ NGUYÊN ]] --
+
 local function checkDoughKing()
     local enemies = Workspace:FindFirstChild("Enemies")
     if not enemies then return false, nil, nil end
@@ -344,7 +502,6 @@ local function checkDoughKing()
     return false, nil, nil
 end
 
--- [[ MỚI: CHECK COCOA (Số lượng >= 10) ]]
 local function getCocoaCount()
     local success, result = pcall(function()
         return ReplicatedStorage.Remotes.CommF_:InvokeServer("getInventory")
@@ -360,7 +517,6 @@ local function getCocoaCount()
     return 0 
 end
 
--- CHECK ELITE QUEST
 spawn(function()
     while true do
         wait(1)
@@ -392,7 +548,6 @@ spawn(function()
     end
 end)
 
--- NoClip Utils
 local noClipConnection = nil
 local function enableNoClip()
     if noClipConnection then return end
@@ -420,7 +575,6 @@ local function disableNoClip()
     end
 end
 
--- Camera Utils
 local cameraLocked = false
 local function lockCamera(targetPos)
     if not player.Character or not player.Character:FindFirstChild("HumanoidRootPart") then return end
@@ -440,7 +594,6 @@ local function unlockCamera()
     workspace.CurrentCamera.CameraType = Enum.CameraType.Custom
 end
 
--- Item Checks
 local function checkForDarkFruit()
     local backpack = player:FindFirstChild("Backpack")
     local character = player.Character
@@ -473,7 +626,6 @@ local function checkForGodsChalice()
     return false, nil
 end
 
--- Function Control
 local function restoreNormalState()
     standUp()
     stopHoldingSpace()
@@ -505,7 +657,6 @@ local function stopAllActivities()
     disableNoClip()
 end
 
--- Teleport Boss (Sửa thành Dough King)
 local function teleportToDoughKing(bossPos)
     if not player.Character or not player.Character:FindFirstChild("HumanoidRootPart") then return end
     teleportingToBoss = true
@@ -526,7 +677,6 @@ local function teleportToDoughKing(bossPos)
     notify("BOSS FOUND!", "Đã tele tới Dough King!")
 end
 
--- Auto Check Loops
 spawn(function()
     while true do
         if not specialItemFound and not doughKingSpawned then
@@ -592,7 +742,7 @@ spawn(function()
     end
 end)
 
-local function startHoldingSpace()
+function startHoldingSpace()
     if spaceConnection then return end
     spaceConnection = RunService.RenderStepped:Connect(function()
         if autoTeleEnabled and not specialItemFound and not doughKingSpawned and not eliteBossPaused then
@@ -601,7 +751,7 @@ local function startHoldingSpace()
     end)
 end
 
-local function stopHoldingSpace()
+function stopHoldingSpace()
     if spaceConnection then
         spaceConnection:Disconnect()
         spaceConnection = nil
@@ -709,7 +859,6 @@ local function safeResetCharacter()
     end
 end
 
--- HÀM MỚI: CHECK VÀ RESET (Dùng chung để tránh lặp code)
 local function tryResetCharacter()
     if currentIndex % 10 == 1 and currentIndex > 1 then
         statusLabel.Text = string.format("🔄 Reset %d...\n🍩 Dough King: Chờ", currentIndex - 1)
@@ -735,48 +884,6 @@ local function tryResetCharacter()
     end
 end
 
-local function serverHop()
-    statusLabel.Text = "🔄 Hop server..."
-    local retryDelay = 1
-    local maxRetries = 100
-    local function getRandomServer()
-        local serversUrl = "https://games.roblox.com/v1/games/" .. game.PlaceId .. "/servers/Public?sortOrder=Asc&limit=100"
-        local response = game:HttpGet(serversUrl)
-        local servers = HttpService:JSONDecode(response).data
-        local availableServers = {}
-        for _, server in ipairs(servers) do
-            if server.playing < server.maxPlayers and server.id ~= game.JobId then
-                table.insert(availableServers, server.id)
-            end
-        end
-        if #availableServers > 0 then
-            return availableServers[math.random(1, #availableServers)]
-        end
-        return nil
-    end
-    local hopped = false
-    local tries = 0
-    while not hopped do
-        tries = tries + 1
-        if tries > maxRetries then
-            statusLabel.Text = "❌ Lỗi, kick nhân vật!"
-            Players.LocalPlayer:Kick("Hop server thất bại!")
-            break
-        end
-        local success, errorMsg = pcall(function()
-            local targetServer = getRandomServer()
-            if targetServer then
-                TeleportService:TeleportToPlaceInstance(game.PlaceId, targetServer, player)
-                hopped = true
-            else
-                statusLabel.Text = "❌ Tìm server..." .. tries
-                wait(retryDelay)
-            end
-        end)
-        if not success then wait(retryDelay) end
-    end
-end
-
 local function toggleAutoTele()
     if doughKingSpawned then
         statusLabel.Text = "⚠️ Dough King spawn!\nKhông thể bật"
@@ -799,18 +906,16 @@ local function toggleAutoTele()
         
         spawn(function()
             while autoTeleEnabled and not specialItemFound and not doughKingSpawned do
-                -- [[ MỚI: CHECK FILE SERVER ]] --
-                -- [[ ĐÃ SỬA: CHECK FILE SERVER - DỪNG HẲN ]] --
                 local isInFile, fileUser = isCurrentServerInFile()
                 if isInFile then
-                    specialItemFound = true -- Khóa script
-                    autoTeleEnabled = false -- Tắt auto
+                    specialItemFound = true
+                    autoTeleEnabled = false
                     
                     statusLabel.Text = "⛔ DỪNG HẲN: Server có Chalice ("..fileUser..")"
                     statusLabel.TextColor3 = Color3.fromRGB(255, 50, 50)
                     
                     restoreNormalState()
-                    break -- Thoát vòng lặp
+                    break
                 end
                 
                 if eliteBossPaused then
@@ -821,7 +926,6 @@ local function toggleAutoTele()
                     continue 
                 end
 
-                -- [[ CHECK COCOA TRƯỚC KHI TELE ]]
                 local cocoa = getCocoaCount()
                 if cocoa < 10 then
                     statusLabel.Text = "⛔ Đợi Cocoa... (" .. cocoa .. "/10)"
@@ -896,20 +1000,18 @@ spawn(function()
             startHoldingSpace()
 
             while autoTeleEnabled and not specialItemFound and not doughKingSpawned and player.Character do
-                -- [[ MỚI: CHECK FILE SERVER ]] --
-                -- [[ ĐÃ SỬA: CHECK FILE SERVER - DỪNG HẲN ]] --
                 local isInFile, fileUser = isCurrentServerInFile()
                 if isInFile then
-                    specialItemFound = true -- Khóa script lại (coi như đã tìm thấy item)
-                    autoTeleEnabled = false -- Tắt auto
+                    specialItemFound = true
+                    autoTeleEnabled = false
                     
                     statusLabel.Text = "⛔ DỪNG HẲN: Server có Chalice ("..fileUser..")"
                     statusLabel.TextColor3 = Color3.fromRGB(255, 50, 50)
                     toggleBtn.Text = "▶ BẮT ĐẦU"
                     toggleBtn.BackgroundColor3 = Color3.fromRGB(50, 200, 100)
                     
-                    restoreNormalState() -- Đứng dậy, tắt no-clip, trả lại trạng thái bình thường
-                    break -- Thoát khỏi vòng lặp ngay lập tức
+                    restoreNormalState()
+                    break
                 end
 
                 if eliteBossPaused then
@@ -920,7 +1022,6 @@ spawn(function()
                     continue 
                 end
 
-                -- [[ CHECK COCOA AUTO START ]]
                 local cocoa = getCocoaCount()
                 if cocoa < 10 then
                     statusLabel.Text = "⛔ Đợi Cocoa... (" .. cocoa .. "/10)"
@@ -951,7 +1052,6 @@ spawn(function()
                     continue
                 end
                 
-                -- Giả lập chờ nhặt rương cho auto start (logic đơn giản hơn toggle)
                 wait(1.5) 
                 currentIndex = currentIndex + 1
                 tryResetCharacter()
@@ -972,4 +1072,4 @@ player.CharacterAdded:Connect(function()
     end
 end)
 
-print("✅ Script Final: God Chalice + Dough King + Elite + Auto Reset 10 + Cocoa Check + MM System!")
+print("✅ Script Final: ServerBrowser Hop + Auto Chest God Chalice + Dough King + MM System!")
