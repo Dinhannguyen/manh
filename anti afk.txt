@@ -1,17 +1,99 @@
-local CHECK_INTERVAL = 5         -- kiểm tra mỗi 5 giây
-local MAX_IDLE_TIME = 300        -- 5 phút (300 giây)
-local MAX_HOP_RETRIES = 50
+-- [[ AFK MONITOR - HOP BẰNG __SERVERBROWSER (Singapore 1-4 players) ]] --
+-- Đã thay hoàn toàn cách hop cũ (TeleportService + Roblox API) bằng cách hop từ file bạn gửi
 
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Players = game:GetService("Players")
-local TeleportService = game:GetService("TeleportService")
 local HttpService = game:GetService("HttpService")
+local VirtualInputManager = game:GetService("VirtualInputManager")
+local UserInputService = game:GetService("UserInputService")
+
 local player = Players.LocalPlayer
+local folderName = "mm"
+
+local CHECK_INTERVAL = 5
+local MAX_IDLE_TIME = 300        -- 5 phút
+local MAX_HOP_RETRIES = 25
 
 local lastPosition = nil
 local idleTime = 0
-local folderName = "mm" -- Tên folder chứa file server
+local isHopping = false
 
--- [[ HÀM KIỂM TRA SERVER CÓ FILE BẢO KÊ KHÔNG ]] --
+-- ================== CÀI ĐẶT HOP __SERVERBROWSER ==================
+local ServerBrowser = ReplicatedStorage:WaitForChild("__ServerBrowser", 10)
+
+local targetCountMin = 1
+local targetCountMax = 4
+local targetRegion = "Singapore"
+
+local function ClickRefresh()
+    pcall(function()
+        local gui = player.PlayerGui:FindFirstChild("ServerBrowser")
+        if not gui then return end
+        local frame = gui:FindFirstChild("Frame")
+        if not frame then return end
+        local refreshBtn = frame:FindFirstChild("Refresh")
+        if refreshBtn and refreshBtn.Visible then
+            local x = refreshBtn.AbsolutePosition.X + (refreshBtn.AbsoluteSize.X / 2)
+            local y = refreshBtn.AbsolutePosition.Y + (refreshBtn.AbsoluteSize.Y / 2) + 58
+            VirtualInputManager:SendMouseButtonEvent(x, y, 0, true, game, 1)
+            task.wait(0.05)
+            VirtualInputManager:SendMouseButtonEvent(x, y, 0, false, game, 1)
+        end
+    end)
+end
+
+local function HopWithServerBrowser(jobId)
+    if not ServerBrowser then return false end
+    local success = pcall(function()
+        ServerBrowser:InvokeServer("teleport", jobId)
+    end)
+    return success
+end
+
+local function GetAndHopServer()
+    if isHopping then return end
+    isHopping = true
+
+    notify("Hop Server", "Đang tìm server Singapore 1-4 người...", 3)
+
+    local success, response = pcall(function()
+        return ServerBrowser:InvokeServer(1, targetRegion)
+    end)
+
+    if success and type(response) == "table" then
+        local candidates = {}
+
+        for jobId, info in pairs(response) do
+            if type(info) == "table" then
+                local pCount = tonumber(info.Count) or 0
+                local pRegion = tostring(info.Region) or ""
+
+                if jobId ~= game.JobId
+                and string.find(pRegion, targetRegion)
+                and pCount >= targetCountMin and pCount <= targetCountMax then
+                    table.insert(candidates, jobId)
+                end
+            end
+        end
+
+        if #candidates > 0 then
+            local chosenJob = candidates[math.random(1, #candidates)]
+            print("🚀 Tìm thấy server phù hợp → Hop ngay: " .. chosenJob)
+            HopWithServerBrowser(chosenJob)
+        else
+            print("⚠️ Không có server 1-4 người Singapore → Refresh...")
+            ClickRefresh()
+            notify("Hop Server", "Không tìm thấy server phù hợp, đang refresh...", 4)
+        end
+    else
+        notify("Lỗi", "Không lấy được danh sách server", 5)
+    end
+
+    task.wait(4)
+    isHopping = false
+end
+
+-- ================== HÀM CHECK SERVER BẢO KÊ (Giữ nguyên) ==================
 local function isCurrentServerSpecial()
     if not isfolder(folderName) then return false end
     
@@ -20,7 +102,6 @@ local function isCurrentServerSpecial()
         local success, content = pcall(readfile, file)
         if success then
             local data = HttpService:JSONDecode(content)
-            -- Nếu JobID trong file trùng với JobID server hiện tại
             if data.jobId == game.JobId then
                 return true
             end
@@ -39,109 +120,53 @@ local function notify(title, text, duration)
     end)
 end
 
-local function getRequestFunc()
-    if syn and syn.request then return syn.request end
-    if http and http.request then return http.request end
-    if request then return request end
-    if http_request then return http_request end
-    return nil
-end
+-- ================== MAIN LOOP ==================
+print("✅ AFK Monitor + __ServerBrowser Hopper đã chạy! (Singapore 1-4 players)")
 
-local requestFunc = getRequestFunc()
+while true do
+    wait(CHECK_INTERVAL)
+    
+    -- Nếu đang ở server có file bảo kê → Reset idle, coi như an toàn
+    if isCurrentServerSpecial() then
+        idleTime = 0
+        if player.Character and player.Character:FindFirstChild("HumanoidRootPart") then
+            lastPosition = player.Character.HumanoidRootPart.Position
+        end
+        continue
+    end
 
-local function getServerList()
-    local placeId = game.PlaceId
-    local apiUrl = "https://games.roblox.com/v1/games/" .. placeId .. "/servers/Public?sortOrder=Asc&limit=100"
-    local success, result = pcall(function()
-        if requestFunc then
-            local response = requestFunc({Url = apiUrl, Method = "GET"})
-            if response and response.Body then
-                return HttpService:JSONDecode(response.Body)
-            end
+    -- Check idle position
+    local character = player.Character
+    local root = character and character:FindFirstChild("HumanoidRootPart")
+    
+    if root then
+        local currentPos = root.Position
+        
+        if lastPosition and (currentPos - lastPosition).Magnitude < 2 then
+            idleTime = idleTime + CHECK_INTERVAL
         else
-            local response = HttpService:GetAsync(apiUrl)
-            return HttpService:JSONDecode(response)
-        end
-    end)
-    if success and result and result.data then
-        return result.data
-    end
-    return nil
-end
-
-local function hopServer()
-    local servers = getServerList()
-    if not servers then return false, "Không lấy được danh sách server" end
-    local currentJobId = game.JobId
-    for _, server in ipairs(servers) do
-        if server.id ~= currentJobId and server.playing < server.maxPlayers then
-            local ok, err = pcall(function()
-                TeleportService:TeleportToPlaceInstance(game.PlaceId, server.id, player)
-            end)
-            if ok then
-                return true, "Đã hop server thành công!"
-            end
-        end
-    end
-    return false, "Không tìm thấy server phù hợp!"
-end
-
-local function monitorIdle()
-    while true do
-        wait(CHECK_INTERVAL)
-
-        -- [[ LOGIC MỚI: CHECK FILE ]] --
-        if isCurrentServerSpecial() then
-            -- Nếu đang ở trong server có file --> Reset thời gian đếm ngược
             idleTime = 0
-            -- Cập nhật lại vị trí để khi mất file không bị tính sai lệch ngay lập tức
-            if player.Character and player.Character:FindFirstChild("HumanoidRootPart") then
-                lastPosition = player.Character.HumanoidRootPart.Position
-            end
-            -- In nhẹ ra console để biết script vẫn chạy nhưng đang bỏ qua
-            -- print("🛡️ Server an toàn (Có File) - Bỏ qua check AFK")
-            continue 
+            lastPosition = currentPos
         end
-        -- [[ HẾT LOGIC MỚI ]] --
-
-        local character = player.Character or player.CharacterAdded:Wait()
-        local root = character:FindFirstChild("HumanoidRootPart")
-        if root then
-            local currentPos = root.Position
-            if lastPosition and (currentPos - lastPosition).magnitude < 1 then
-                idleTime = idleTime + CHECK_INTERVAL
-            else
-                idleTime = 0
-                lastPosition = currentPos
+        
+        if idleTime >= MAX_IDLE_TIME then
+            notify("AFK Detector", "Đứng yên quá 5 phút! Đang hop server...", 6)
+            
+            local retry = 0
+            while retry < MAX_HOP_RETRIES do
+                retry = retry + 1
+                GetAndHopServer()
+                task.wait(6) -- chờ hop xong (nếu hop thành công thì script sẽ bị disconnect)
+                
+                -- Nếu vẫn còn ở đây → hop fail → thử lại
+                notify("Hop Server", "Thử lần " .. retry .. "/" .. MAX_HOP_RETRIES, 3)
             end
             
-            if idleTime >= MAX_IDLE_TIME then
-                notify("AFK", "Đứng yên quá lâu! Đang hop server...", 5)
-                local hopSuccess = false
-                local retryCount = 0
-                while not hopSuccess and retryCount < MAX_HOP_RETRIES do
-                    retryCount = retryCount + 1
-                    notify("Hop Server", "Thử lần " .. retryCount, 2)
-                    local success, msg = hopServer()
-                    if success then
-                        hopSuccess = true
-                        notify("Hop Server", "Thành công!", 4)
-                        break
-                    else
-                        wait(2)
-                    end
-                end
-                if not hopSuccess then
-                    notify("Hop Server", "Thất bại! Đang kick...", 6)
-                    wait(2)
-                    player:Kick("Đứng yên quá lâu và không thể hop server sau 50 lần thử. Vui lòng rejoin!")
-                end
-                idleTime = 0
-                lastPosition = root.Position
+            if retry >= MAX_HOP_RETRIES then
+                notify("Hop Failed", "Không hop được sau " .. MAX_HOP_RETRIES .. " lần thử!", 8)
             end
+            
+            idleTime = 0
         end
     end
 end
-
-print("✅ AFK Monitor loaded! (Mode: MM Safe Check)")
-monitorIdle()
