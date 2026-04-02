@@ -1,6 +1,5 @@
 -- [[ SCRIPT 2: WATCHER & HOPPER - FINAL LOGIC ]] --
 local HttpService = game:GetService("HttpService")
-local TeleportService = game:GetService("TeleportService")
 local Players = game:GetService("Players")
 local Workspace = game:GetService("Workspace")
 
@@ -100,7 +99,14 @@ while true do
             -- Chỉ hop nếu: File mới + Server vắng + Không phải server hiện tại
             if timeDiff < 180 and data.playerCount <= 11 and data.jobId ~= game.JobId then
                 print("🚀 Tìm thấy: " .. data.username .. " -> HOP NGAY!")
-                TeleportService:TeleportToPlaceInstance(data.placeId, data.jobId, LocalPlayer)
+                
+                -- ĐÃ THAY ĐỔI: Sử dụng __ServerBrowser Invoke thay cho TeleportService
+                if __ServerBrowser then
+                    __ServerBrowser:Invoke("teleport", data.jobId)
+                else
+                    warn("LỖI: Không tìm thấy module __ServerBrowser!")
+                end
+                
                 foundTarget = true
                 break
             end
