@@ -1,10 +1,14 @@
--- [[ SCRIPT 2: WATCHER & HOPPER - FINAL LOGIC ]] --
+-- [[ SCRIPT 2: WATCHER & HOPPER - FINAL LOGIC (ĐÃ SỬA CÁCH HOP) ]] --
 local HttpService = game:GetService("HttpService")
 local Players = game:GetService("Players")
 local Workspace = game:GetService("Workspace")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local folderName = "mm"
 local LocalPlayer = Players.LocalPlayer
+
+-- Remote __ServerBrowser (dùng để hop theo cách bạn muốn)
+local ServerBrowser = ReplicatedStorage:WaitForChild("__ServerBrowser")
 
 -- lastSafeTime = 0: Nghĩa là đang ở Server Rác (mặc định)
 -- lastSafeTime > 0: Nghĩa là vừa mới ở Server Bảo Kê
@@ -37,7 +41,7 @@ print("✅ Watcher đang chạy. Trạng thái: Server Rác (Sẵn sàng Hop)")
 
 while true do
     wait(2) -- Quét mỗi 2 giây
-
+    
     -- 1. Check an toàn (Nếu đang đánh Boss thì coi như đang ở Server Bảo Kê để không hop)
     if checkDoughKing() or amIHoldingChalice() then
         print("⛔ Có Boss/Chalice! Tạm dừng hop.")
@@ -60,7 +64,7 @@ while true do
             end
         end
     end
-
+    
     -- 3. XỬ LÝ LOGIC TRẠNG THÁI
     if isSafeServer then
         -- [TRƯỜNG HỢP A]: Đang ở đúng Server của file
@@ -70,7 +74,6 @@ while true do
     
     elseif lastSafeTime ~= 0 then
         -- [TRƯỜNG HỢP B]: Vừa mất file (Trước đó là Safe, giờ mới mất)
-        -- Logic này CHỈ chạy khi lastSafeTime khác 0
         local timePassed = os.time() - lastSafeTime
         
         if timePassed < 30 then
@@ -81,12 +84,8 @@ while true do
             lastSafeTime = 0 -- Reset về 0 để các lần sau không chờ nữa
         end
     end
-
-    -- [TRƯỜNG HỢP C]: Server Rác
-    -- Code sẽ chạy thẳng xuống đây nếu:
-    -- 1. Bạn vừa vào game ở server rác (lastSafeTime = 0)
-    -- 2. Hoặc đã chờ xong 30s ở trường hợp B
     
+    -- [TRƯỜNG HỢP C]: Server Rác
     print("🔍 [Server Rác] Đang quét tìm Server ngon để Hop...")
     
     local foundTarget = false
@@ -98,14 +97,12 @@ while true do
             
             -- Chỉ hop nếu: File mới + Server vắng + Không phải server hiện tại
             if timeDiff < 180 and data.playerCount <= 11 and data.jobId ~= game.JobId then
-                print("🚀 Tìm thấy: " .. data.username .. " -> HOP NGAY!")
+                print("🚀 Tìm thấy: " .. data.username .. " -> HOP NGAY bằng __ServerBrowser!")
                 
-                -- ĐÃ THAY ĐỔI: Sử dụng __ServerBrowser Invoke thay cho TeleportService
-                if __ServerBrowser then
-                    __ServerBrowser:Invoke("teleport", data.jobId)
-                else
-                    warn("LỖI: Không tìm thấy module __ServerBrowser!")
-                end
+                -- === PHẦN ĐÃ SỬA THEO YÊU CẦU CỦA BẠN ===
+                -- Thay vì TeleportService:TeleportToPlaceInstance(...)
+                -- Bây giờ dùng đúng cách bạn nói: __ServerBrowser Invoke ["teleport", jobID]
+                ServerBrowser:InvokeServer("teleport", data.jobId)
                 
                 foundTarget = true
                 break
