@@ -1,7 +1,7 @@
 local CoreGui = game:GetService("CoreGui")
 local GuiService = game:GetService("GuiService")
 
-print("Đã bật chế độ tự động đóng bảng thông báo lỗi...")
+print("Đã bật chế độ tự động đóng bảng thông báo lỗi (Chỉ áp dụng khi Server Full)...")
 
 task.spawn(function()
     while task.wait(0.5) do 
@@ -13,37 +13,55 @@ task.spawn(function()
                 
                 -- Kiểm tra xem bảng báo lỗi có đang hiện không
                 if errorPrompt and errorPrompt.Visible then
-                    print("Phát hiện bảng thông báo! Đang tự động xử lý...")
-                    
-                    -- Cách 1: Dùng hàm mặc định của Roblox để xóa thông báo lỗi
-                    pcall(function()
-                        GuiService:ClearError()
-                    end)
-                    
-                    -- Cách 2: Dùng getconnections của executor để ép click vào nút OK
-                    -- (Phòng trường hợp Cách 1 bị Roblox chặn)
-                    local errorFrame = errorPrompt:FindFirstChild("ErrorFrame")
-                    if errorFrame then
-                        local buttonArea = errorFrame:FindFirstChild("ButtonArea")
-                        if buttonArea then
-                            local okButton = buttonArea:FindFirstChild("OkButton")
-                            if okButton and getconnections then
-                                -- Quét các sự kiện click chuột trái vào nút OK và kích hoạt nó
-                                for _, connection in ipairs(getconnections(okButton.MouseButton1Click)) do
-                                    pcall(function()
-                                        connection:Fire()
-                                    end)
+                    -- TÌM PHẦN TỬ CHỨA NỘI DUNG LỖI BẰNG CÁCH QUÉT SÂU (True)
+                    local errorMessage = errorPrompt:FindFirstChild("ErrorMessage", true)
+                    local isServerFull = false
+
+                    -- KIỂM TRA NỘI DUNG TEXT CÓ CHỨA TỪ KHÓA FULL HAY KHÔNG
+                    if errorMessage and errorMessage:IsA("TextLabel") then
+                        local textContent = string.lower(errorMessage.Text)
+                        if string.find(textContent, "server is full") 
+                            or string.find(textContent, "game is full") 
+                            or string.find(textContent, "server full") then
+                            isServerFull = true
+                        end
+                    end
+
+                    -- CHỈ XỬ LÝ NẾU ĐÚNG LÀ LỖI SERVER FULL
+                    if isServerFull then
+                        print("Phát hiện lỗi Server Full! Đang tự động xử lý...")
+                        
+                        -- Cách 1: Dùng hàm mặc định của Roblox để xóa thông báo lỗi
+                        pcall(function()
+                            GuiService:ClearError()
+                        end)
+                        
+                        -- Cách 2: Dùng getconnections của executor để ép click vào nút OK
+                        local errorFrame = errorPrompt:FindFirstChild("ErrorFrame")
+                        if errorFrame then
+                            local buttonArea = errorFrame:FindFirstChild("ButtonArea")
+                            if buttonArea then
+                                local okButton = buttonArea:FindFirstChild("OkButton")
+                                if okButton and getconnections then
+                                    for _, connection in ipairs(getconnections(okButton.MouseButton1Click)) do
+                                        pcall(function()
+                                            connection:Fire()
+                                        end)
+                                    end
                                 end
                             end
                         end
+                        
+                        -- Đợi cho đến khi bảng thông báo thực sự biến mất để tránh spam
+                        repeat 
+                            task.wait(0.1) 
+                        until not errorPrompt.Visible
+                        
+                        print("Đã đóng bảng thông báo thành công. Tiếp tục quét...")
+                    else
+                        -- Nếu là lỗi khác (ví dụ: mất kết nối, ban, v.v.), bỏ qua và nghỉ 1 giây để tránh spam vòng lặp
+                        task.wait(1)
                     end
-                    
-                    -- Đợi cho đến khi bảng thông báo thực sự biến mất để tránh spam
-                    repeat 
-                        task.wait(0.1) 
-                    until not errorPrompt.Visible
-                    
-                    print("Đã đóng bảng thông báo thành công. Tiếp tục quét...")
                 end
             end
         end
